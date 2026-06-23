@@ -10,6 +10,8 @@ test_env/
 # Database
 scout_db.db
 scout_db.db-journal
+scout.db
+*.db
 
 # Python caching
 __pycache__/
@@ -29,3 +31,12 @@ htmlcov/
 # IDE files
 .vscode/
 .idea/
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db

@@ -10,6 +10,7 @@ services:
     name: scout-backend
     runtime: docker
     dockerfilePath: docker/Dockerfile.backend
+    healthCheckPath: /health
     plan: free
     envVars:
       - key: PORT
@@ -32,6 +33,7 @@ services:
     name: scout-frontend
     runtime: docker
     dockerfilePath: docker/Dockerfile.frontend
+    healthCheckPath: /_stcore/health
     plan: free
     envVars:
       - key: PORT

@@ -6,9 +6,6 @@ from database.models.article import Article
 from database.models.competitor import CompetitorMention
 from data_pipeline.collectors import newsapi_collector, rss_collector
 from data_pipeline.processors import cleaner, classifier
-from analytics.sentiment.finbert import analyze_sentiment
-from analytics.keyword_extraction.keybert_extractor import extract_keywords
-from rag.embedding import embed_and_store
 from analytics.topic_modeling.bertopic_model import run_topic_modeling
 
 # Setup logging
@@ -54,6 +51,11 @@ def run_pipeline(dry_run: bool = False, run_topics_flag: bool = False):
         # Ensure tables exist
         Base.metadata.create_all(bind=engine)
         db = SessionLocal()
+        
+        # Lazy load heavy ML packages only when database writes are active
+        from analytics.sentiment.finbert import analyze_sentiment
+        from analytics.keyword_extraction.keybert_extractor import extract_keywords
+        from rag.embedding import embed_and_store
         
     inserted_count = 0
     duplicate_count = 0
