@@ -7,4 +7,4 @@ RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/wh
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 # Run Alembic migrations on startup, then start server
-CMD ["sh", "-c", "python -m database.wait_for_db && alembic upgrade head && uvicorn backend.main:app --host 0.0.0.0 --port 8000"]
+CMD ["sh", "-c", "python -m database.wait_for_db && alembic upgrade head && uvicorn backend.main:app --host 0.0.0.0 --port $PORT"]
