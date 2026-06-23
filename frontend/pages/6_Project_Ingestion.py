@@ -2,11 +2,16 @@ import streamlit as st
 import plotly.express as px
 import requests
 import os
+import sys
 import pandas as pd
 from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
+
+# Add parent directory to path to import styles
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+import styles
 
 st.set_page_config(
     page_title="Scout - Project Ingestion",
@@ -16,121 +21,36 @@ st.set_page_config(
 
 API_URL = os.getenv("API_URL", "http://localhost:8000")
 
-# Premium styling (no emojis, professional, clean layout)
-st.markdown("""
-    <style>
-    @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Inter:wght@300;400;500;600&display=swap');
-    
-    html, body, [class*="css"] {
-        font-family: 'Inter', sans-serif;
-    }
-    
-    .gradient-header {
-        background: linear-gradient(135deg, #58a6ff 0%, #bb86fc 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        font-family: 'Outfit', sans-serif;
-        font-weight: 800;
-        font-size: 2.8rem;
-        margin-bottom: 0.5rem;
-    }
-    
-    .subtitle {
-        color: #8b949e;
-        font-size: 1.1rem;
-        margin-bottom: 2rem;
-    }
-    
-    .kpi-container {
-        display: flex;
-        gap: 15px;
-        margin-bottom: 25px;
-    }
-    
-    .kpi-card {
-        flex: 1;
-        background: rgba(22, 27, 34, 0.6);
-        backdrop-filter: blur(10px);
-        -webkit-backdrop-filter: blur(10px);
-        padding: 20px;
-        border-radius: 10px;
-        border: 1px solid rgba(88, 166, 255, 0.15);
-        text-align: center;
-        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.15);
-    }
-    
-    .kpi-val {
-        font-family: 'Outfit', sans-serif;
-        font-size: 32px;
-        font-weight: 700;
-        color: #58a6ff;
-    }
-    
-    .kpi-lbl {
-        font-size: 12px;
-        color: #8b949e;
-        text-transform: uppercase;
-        letter-spacing: 1.2px;
-        font-weight: 600;
-        margin-top: 5px;
-    }
-    
-    .article-card {
-        background: rgba(22, 27, 34, 0.4);
-        padding: 18px;
-        border-radius: 10px;
-        border: 1px solid rgba(88, 166, 255, 0.1);
-        margin-bottom: 15px;
-        transition: 0.3s;
-    }
-    .article-card:hover {
-        border-color: #58a6ff;
-        background-color: rgba(28, 33, 40, 0.6);
-    }
-    
-    .badge {
-        display: inline-block;
-        padding: 3px 8px;
-        border-radius: 12px;
-        font-size: 11px;
-        font-weight: 600;
-        text-transform: uppercase;
-        border: 1px solid transparent;
-        margin-right: 5px;
-    }
-    
-    .badge-industry {
-        background-color: rgba(187, 134, 252, 0.15);
-        color: #bb86fc;
-        border-color: rgba(187, 134, 252, 0.3);
-    }
-    
-    .badge-keyword {
-        background-color: rgba(88, 166, 255, 0.1);
-        color: #58a6ff;
-        border-color: rgba(88, 166, 255, 0.2);
-    }
-    
-    .badge-positive {
-        background-color: rgba(46, 160, 67, 0.15);
-        color: #2ea043;
-        border-color: rgba(46, 160, 67, 0.3);
-    }
-    .badge-negative {
-        background-color: rgba(248, 81, 73, 0.15);
-        color: #f85149;
-        border-color: rgba(248, 81, 73, 0.3);
-    }
-    .badge-neutral {
-        background-color: rgba(139, 148, 158, 0.15);
-        color: #8b949e;
-        border-color: rgba(139, 148, 158, 0.3);
-    }
-    </style>
-""", unsafe_allow_html=True)
+# Header block
+styles.render_header(
+    "Project Ingestion Pipeline",
+    "Search and ingest live articles on any topic or project directly into the Scout database and vector index."
+)
 
-st.markdown('<div class="gradient-header">Project and Keyword Ingestion Pipeline</div>', unsafe_allow_html=True)
-st.markdown('<div class="subtitle">Search and ingest live articles on any topic or project directly into the Scout database and vector index.</div>', unsafe_allow_html=True)
+# Initialize session state for ingest search term
+if "ingest_search_term" not in st.session_state:
+    st.session_state.ingest_search_term = ""
+
+# Quick suggestions
+st.markdown("#### Suggested Topics to Ingest")
+sug_col1, sug_col2, sug_col3, sug_col4 = st.columns(4)
+button_query = None
+with sug_col1:
+    if st.button("Solid State Battery", use_container_width=True):
+        button_query = "solid state battery"
+        st.session_state.ingest_search_term = "solid state battery"
+with sug_col2:
+    if st.button("Generative AI Regulation", use_container_width=True):
+        button_query = "generative AI regulation"
+        st.session_state.ingest_search_term = "generative AI regulation"
+with sug_col3:
+    if st.button("Hydrogen Fuel Cells", use_container_width=True):
+        button_query = "hydrogen fuel cells"
+        st.session_state.ingest_search_term = "hydrogen fuel cells"
+with sug_col4:
+    if st.button("Commercial Spaceflight", use_container_width=True):
+        button_query = "commercial spaceflight"
+        st.session_state.ingest_search_term = "commercial spaceflight"
 
 # Main container for controls
 st.markdown("### Ingest a New Project")
@@ -139,6 +59,7 @@ col_input, col_btn = st.columns([4, 1])
 with col_input:
     query = st.text_input(
         "Enter Project Keywords or Topic...",
+        key="ingest_search_term",
         placeholder="Type e.g., solid state battery, generative AI regulation, hyperloop...",
         label_visibility="collapsed"
     )
@@ -146,34 +67,17 @@ with col_input:
 with col_btn:
     submit_btn = st.button("Start Ingestion", use_container_width=True)
 
-# Quick suggestion list (professional topics)
-st.markdown("#### Suggested Topics to Ingest")
-sug_col1, sug_col2, sug_col3, sug_col4 = st.columns(4)
-with sug_col1:
-    if st.button("Solid State Battery", use_container_width=True):
-        st.session_state.ingest_query_val = "solid state battery"
-with sug_col2:
-    if st.button("Generative AI Regulation", use_container_width=True):
-        st.session_state.ingest_query_val = "generative AI regulation"
-with sug_col3:
-    if st.button("Hydrogen Fuel Cells", use_container_width=True):
-        st.session_state.ingest_query_val = "hydrogen fuel cells"
-with sug_col4:
-    if st.button("Commercial Spaceflight", use_container_width=True):
-        st.session_state.ingest_query_val = "commercial spaceflight"
+# Resolve final query and run state
+resolved_query = button_query or query
+should_run = (submit_btn or (button_query is not None)) and resolved_query
 
-if "ingest_query_val" in st.session_state and st.session_state.ingest_query_val:
-    query = st.session_state.ingest_query_val
-    st.session_state.ingest_query_val = None
-    st.rerun()
-
-if submit_btn and query:
+if should_run:
     st.markdown("---")
-    st.subheader(f"Ingesting and Analyzing Articles for: '{query}'")
+    st.subheader(f"Ingesting and Analyzing Articles for: '{resolved_query}'")
     
     with st.spinner("Executing ingestion pipeline: parsing Google News RSS feed, downloading full content, classifying industry, computing FinBERT sentiment, extracting KeyBERT keywords, and indexing into Qdrant..."):
         try:
-            response = requests.post(f"{API_URL}/api/articles/ingest-keyword", params={"q": query}, timeout=90)
+            response = requests.post(f"{API_URL}/api/articles/ingest-keyword", params={"q": resolved_query}, timeout=90)
             response.raise_for_status()
             res_data = response.json()
             
@@ -181,26 +85,35 @@ if submit_btn and query:
             articles = res_data.get("articles", [])
             
             # Display KPIs
-            st.markdown(f"""
-                <div class="kpi-container">
+            kpi_col1, kpi_col2, kpi_col3, kpi_col4 = st.columns(4)
+            with kpi_col1:
+                st.markdown(f"""
                     <div class="kpi-card">
                         <div class="kpi-val">{stats.get('total_fetched', 0)}</div>
                         <div class="kpi-lbl">Total Fetched</div>
                     </div>
+                """, unsafe_allow_html=True)
+            with kpi_col2:
+                st.markdown(f"""
                     <div class="kpi-card">
-                        <div class="kpi-val" style="color: #2ea043;">{stats.get('new_ingested', 0)}</div>
+                        <div class="kpi-val" style="color: rgb(16, 185, 129);">{stats.get('new_ingested', 0)}</div>
                         <div class="kpi-lbl">Newly Ingested</div>
                     </div>
+                """, unsafe_allow_html=True)
+            with kpi_col3:
+                st.markdown(f"""
                     <div class="kpi-card">
-                        <div class="kpi-val" style="color: #8b949e;">{stats.get('duplicates_skipped', 0)}</div>
+                        <div class="kpi-val" style="color: rgb(107, 114, 128);">{stats.get('duplicates_skipped', 0)}</div>
                         <div class="kpi-lbl">Duplicates Skipped</div>
                     </div>
+                """, unsafe_allow_html=True)
+            with kpi_col4:
+                st.markdown(f"""
                     <div class="kpi-card">
-                        <div class="kpi-val" style="color: #f85149;">{stats.get('errors', 0)}</div>
+                        <div class="kpi-val" style="color: rgb(239, 68, 68);">{stats.get('errors', 0)}</div>
                         <div class="kpi-lbl">Errors Encountered</div>
                     </div>
-                </div>
-            """, unsafe_allow_html=True)
+                """, unsafe_allow_html=True)
             
             if not articles:
                 if stats.get('duplicates_skipped', 0) > 0:
@@ -221,9 +134,9 @@ if submit_btn and query:
                     sentiment_counts.columns = ['Sentiment', 'Count']
                     
                     color_discrete_map = {
-                        "positive": "#2ea043",
-                        "negative": "#f85149",
-                        "neutral": "#8b949e"
+                        "positive": "#10b981", # emerald-500
+                        "negative": "#ef4444", # red-500
+                        "neutral": "#6b7280"  # gray-500
                     }
                     
                     fig_pie = px.pie(
@@ -237,7 +150,7 @@ if submit_btn and query:
                     fig_pie.update_layout(
                         paper_bgcolor="rgba(0,0,0,0)",
                         plot_bgcolor="rgba(0,0,0,0)",
-                        font_color="#c9d1d9",
+                        font_family="Inter",
                         height=300,
                         margin=dict(l=10, r=10, t=10, b=10)
                     )
@@ -253,16 +166,14 @@ if submit_btn and query:
                         x='Count',
                         y='Industry',
                         orientation='h',
-                        color='Count',
-                        color_continuous_scale="Viridis",
+                        color_discrete_sequence=["#475569"], # Slate-600
                     )
                     fig_bar.update_layout(
                         paper_bgcolor="rgba(0,0,0,0)",
                         plot_bgcolor="rgba(0,0,0,0)",
-                        font_color="#c9d1d9",
-                        xaxis=dict(showgrid=True, gridcolor="#21262d"),
+                        font_family="Inter",
+                        xaxis=dict(showgrid=True, gridcolor="rgba(128, 128, 128, 0.15)"),
                         yaxis=dict(showgrid=False),
-                        coloraxis_showscale=False,
                         height=300,
                         margin=dict(l=10, r=10, t=10, b=10)
                     )
@@ -278,31 +189,35 @@ if submit_btn and query:
                     
                     kws_span = ""
                     for kw in art["keywords"]:
-                        kws_span += f'<span class="badge badge-keyword">{kw}</span>'
+                        kws_span += f'<span class="neutral-badge">{kw}</span>'
                         
                     st.markdown(f"""
-                        <div class="article-card">
+                        <div class="content-card">
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                                <h5 style="margin: 0; color: #58a6ff; font-family: 'Outfit', sans-serif; font-size: 1.1rem;">{art['title']}</h5>
+                                <h5 style="margin: 0; font-size: 1.05rem; font-weight: 600;">{art['title']}</h5>
                                 <div>
-                                    <span class="badge {badge_class}">{sent}</span>
-                                    <span class="badge badge-industry">{art['industry']}</span>
+                                    <span class="neutral-badge {badge_class}">{sent}</span>
+                                    <span class="neutral-badge">{art['industry']}</span>
                                 </div>
                             </div>
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px;">
                                 <div>
                                     {kws_span}
-                                    <span style="font-size: 11.5px; color: #8b949e; margin-left: 10px;">Source: <b>{art['source']}</b></span>
+                                    <span style="font-size: 11.5px; color: rgba(128,128,128,0.6); margin-left: 10px;">Source: <b>{art['source']}</b></span>
                                 </div>
-                                <a href="{art['url']}" target="_blank" style="font-size: 12.5px; color: #58a6ff; text-decoration: none; font-weight: 600;">Read Original ↗</a>
+                                <a href="{art['url']}" target="_blank" style="font-size: 12.5px; color: var(--text-color); text-decoration: underline; font-weight: 600;">Read Original ↗</a>
                             </div>
                         </div>
                     """, unsafe_allow_html=True)
                     
                 st.markdown("---")
-                st.info("The newly ingested articles are now indexed in the Qdrant vector store and relational database. You can head over to the **AI Analyst** page and ask questions about this project!")
+                st.info("The newly ingested articles are now indexed in the vector store and relational database. You can head over to the AI Analyst page and ask questions about this project!")
                 
         except Exception as e:
             st.error(f"Failed to execute ingestion pipeline: {e}")
-elif submit_btn and not query:
+elif submit_btn and not resolved_query:
     st.warning("Please enter a valid search term.")
+
+st.sidebar.markdown("---")
+styles.system_sidebar()
+

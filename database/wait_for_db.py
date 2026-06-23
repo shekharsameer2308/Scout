@@ -12,11 +12,8 @@ logging.basicConfig(
 logger = logging.getLogger("wait_for_db")
 
 def wait_for_db():
-    database_url = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/scout_db")
-    
-    # Convert postgres:// to postgresql:// for SQLAlchemy
-    if database_url and database_url.startswith("postgres://"):
-        database_url = database_url.replace("postgres://", "postgresql://", 1)
+    from database.connection import clean_database_url
+    database_url = clean_database_url(os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/scout_db"))
         
     logger.info("Verifying database connectivity...")
     

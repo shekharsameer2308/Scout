@@ -5,14 +5,12 @@ import sys
 from datetime import datetime
 from dotenv import load_dotenv
 
-# Add project root to path to import database modules
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
-from database.connection import SessionLocal
-from database.models.article import Article
-from database.models.analytics import SentimentScore
-
 # Load environment variables
 load_dotenv()
+
+# Add parent directory to path to import styles
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+import styles
 
 st.set_page_config(
     page_title="Scout — AI Analyst",
@@ -23,80 +21,11 @@ st.set_page_config(
 API_URL = os.getenv("API_URL", "http://localhost:8000")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "mock_key")
 
-# Premium styling
-st.markdown("""
-    <style>
-    @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Inter:wght@300;400;500;600&display=swap');
-    
-    html, body, [class*="css"] {
-        font-family: 'Inter', sans-serif;
-    }
-    
-    .gradient-header {
-        background: linear-gradient(135deg, #58a6ff 0%, #bb86fc 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        font-family: 'Outfit', sans-serif;
-        font-weight: 800;
-        font-size: 2.8rem;
-        margin-bottom: 0.5rem;
-    }
-    
-    .subtitle {
-        color: #8b949e;
-        font-size: 1.1rem;
-        margin-bottom: 2rem;
-    }
-    
-    .chat-bubble {
-        padding: 16px 20px;
-        border-radius: 12px;
-        border: 1px solid rgba(88, 166, 255, 0.1);
-        margin-bottom: 15px;
-    }
-    
-    .example-btn {
-        background-color: #161b22;
-        color: #58a6ff;
-        border: 1px solid #30363d;
-        padding: 8px 16px;
-        border-radius: 20px;
-        font-size: 12.5px;
-        cursor: pointer;
-        display: inline-block;
-        margin: 5px;
-        font-weight: 500;
-        transition: 0.3s;
-    }
-    .example-btn:hover {
-        border-color: #58a6ff;
-        background-color: #1f242c;
-    }
-    
-    /* Cited table style */
-    .citation-table {
-        width: 100%;
-        border-collapse: collapse;
-        margin-top: 15px;
-        font-size: 13px;
-        background: rgba(22, 27, 34, 0.4);
-        border: 1px solid rgba(88, 166, 255, 0.1);
-    }
-    .citation-table th, .citation-table td {
-        padding: 10px;
-        border: 1px solid rgba(88, 166, 255, 0.1);
-        text-align: left;
-    }
-    .citation-table th {
-        background-color: rgba(88, 166, 255, 0.1);
-        color: #58a6ff;
-        font-weight: 600;
-    }
-    </style>
-""", unsafe_allow_html=True)
-
-st.markdown('<div class="gradient-header">🤖 AI Analyst Report Generator</div>', unsafe_allow_html=True)
-st.markdown('<div class="subtitle">Enter research topics, industry questions, or request SWOT reports built from gathered intelligence.</div>', unsafe_allow_html=True)
+# Header block
+styles.render_header(
+    "AI Analyst Report Generator",
+    "Enter research topics, industry questions, or request SWOT reports built from gathered intelligence."
+)
 
 # Helper: Retrieve matching articles from SQL database
 def retrieve_articles(query: str, limit: int = 5):
@@ -161,19 +90,15 @@ def generate_response(prompt: str, articles):
 
     if is_mock:
         # Local Intelligent Synthesis Fallback
-        # Determine the key topics based on prompt
         prompt_lower = prompt.lower()
         
-        # Extract matches
         cited_sources = []
         for idx, art in enumerate(articles):
             cited_sources.append(f"| [{idx+1}] | [{art.title}]({art.url}) | {art.source} | {art.industry} |")
             
         sources_table = "\n".join(cited_sources)
         
-        # Build synthesis response
         if "swot" in prompt_lower:
-            # SWOT Analysis template customized by articles
             company = "Competitor"
             for c in ["tesla", "byd", "toyota", "ford", "gm", "samsung", "tsmc", "apple", "google", "microsoft", "amazon", "meta", "nvidia"]:
                 if c in prompt_lower:
@@ -187,9 +112,9 @@ def generate_response(prompt: str, articles):
             summary_points_str = "\n".join(summary_points[:3])
             
             return f"""> [!NOTE]
-> *Currently running in Local Intelligent Fallback Mode because GEMINI_API_KEY is not configured. Real article records from your database have been synthesized below.*
+> *Running in Local Synthesis Fallback Mode (GEMINI_API_KEY not configured). Synthesizing database articles below.*
 
-# ⚔️ SWOT Intelligence Report: {company}
+# SWOT Intelligence Report: {company}
 
 Based on recent market ingestion feeds, we have compiled a SWOT analysis for **{company}**.
 
@@ -199,10 +124,10 @@ The database indicates active developments matching the sector:
 
 ### 2. SWOT Grid
 
-| 🟢 Strengths | 🔴 Weaknesses |
+| Strengths | Weaknesses |
 | :--- | :--- |
 | • Strong presence in primary sector.<br>• Highly cited brand recognition across media channels.<br>• Consistent updates of data capabilities [1]. | • Exposure to regulatory scrutiny and global supply constraints.<br>• Dependency on key regional supplier dynamics [2]. |
-| **🔵 Opportunities** | **⚠️ Threats** |
+| **Opportunities** | **Threats** |
 | • Expanding into emerging AI-driven workflows.<br>• Leveraging localized consumer demand and green energy shifts [3]. | • Intensive competitor pricing campaigns (e.g., EV price wars).<br>• Sudden macroeconomic supply-chain halts. |
 
 ### 3. Cited Database Sources
@@ -211,7 +136,6 @@ The database indicates active developments matching the sector:
 {sources_table}
 """
         else:
-            # General RAG Report template
             summary_points = []
             for idx, art in enumerate(articles):
                 summary_points.append(f"### {idx+1}. {art.title}\n* **Key Detail**: {art.summary[:250]}...\n* **Source**: [{art.source}]({art.url}) | **Sector**: `{art.industry}`")
@@ -219,9 +143,9 @@ The database indicates active developments matching the sector:
             summary_points_str = "\n\n".join(summary_points)
             
             return f"""> [!NOTE]
-> *Currently running in Local Intelligent Fallback Mode because GEMINI_API_KEY is not configured. Real database articles have been synthesized below.*
+> *Running in Local Synthesis Fallback Mode (GEMINI_API_KEY not configured). Synthesizing database articles below.*
 
-# 📋 Market Intelligence Report
+# Market Intelligence Report
 
 We retrieved **{len(articles)} relevant articles** from the database matching your query.
 
@@ -242,6 +166,11 @@ The primary focus of recent publications is the expansion of technological capab
 {sources_table}
 """
 
+# Initialize SessionLocal db connection imports
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
+from database.connection import SessionLocal
+from database.models.article import Article
+
 # Initialize session state for chat history
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
@@ -252,25 +181,21 @@ for message in st.session_state.chat_history:
         st.markdown(message["content"])
 
 # Quick start prompts
-st.markdown("### 💡 Quick Research Suggestions")
+st.markdown("### Quick Research Suggestions")
 col1, col2, col3 = st.columns(3)
+button_prompt = None
 with col1:
-    if st.button("📈 EV Competitor Trends", use_container_width=True):
-        st.session_state.chat_input_val = "Summarize recent EV competitor trends (Tesla, BYD)"
+    if st.button("EV Competitor Trends", use_container_width=True):
+        button_prompt = "Summarize recent EV competitor trends (Tesla, BYD)"
 with col2:
-    if st.button("⚔️ Generate BYD SWOT Analysis", use_container_width=True):
-        st.session_state.chat_input_val = "Generate a SWOT analysis for BYD"
+    if st.button("Generate BYD SWOT Analysis", use_container_width=True):
+        button_prompt = "Generate a SWOT analysis for BYD"
 with col3:
-    if st.button("🛡️ Defense Sector Overview", use_container_width=True):
-        st.session_state.chat_input_val = "What are the latest developments in the defense industry?"
+    if st.button("Defense Sector Overview", use_container_width=True):
+        button_prompt = "What are the latest developments in the defense industry?"
 
-# Streamlit chat input
-prompt = st.chat_input("Ask Scout a research question...")
-
-# Handle click from quick suggestions
-if "chat_input_val" in st.session_state and st.session_state.chat_input_val:
-    prompt = st.session_state.chat_input_val
-    st.session_state.chat_input_val = None
+chat_prompt = st.chat_input("Ask Scout a research question...")
+prompt = chat_prompt or button_prompt
 
 if prompt:
     # Append user prompt
@@ -290,3 +215,6 @@ if prompt:
             
     # Append assistant response
     st.session_state.chat_history.append({"role": "assistant", "content": response})
+
+st.sidebar.markdown("---")
+styles.system_sidebar()

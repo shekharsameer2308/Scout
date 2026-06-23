@@ -3,11 +3,16 @@ import plotly.express as px
 import plotly.graph_objects as go
 import requests
 import os
+import sys
 import pandas as pd
 from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
+
+# Add parent directory to path to import styles
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+import styles
 
 st.set_page_config(
     page_title="Scout — Dashboard",
@@ -17,63 +22,11 @@ st.set_page_config(
 
 API_URL = os.getenv("API_URL", "http://localhost:8000")
 
-# Custom Styling (premium aesthetics)
-st.markdown("""
-    <style>
-    @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Inter:wght@300;400;500;600&display=swap');
-    
-    html, body, [class*="css"] {
-        font-family: 'Inter', sans-serif;
-    }
-    
-    .gradient-header {
-        background: linear-gradient(135deg, #58a6ff 0%, #bb86fc 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        font-family: 'Outfit', sans-serif;
-        font-weight: 800;
-        font-size: 2.8rem;
-        margin-bottom: 0.5rem;
-    }
-    
-    .kpi-card {
-        background: rgba(22, 27, 34, 0.6);
-        backdrop-filter: blur(10px);
-        -webkit-backdrop-filter: blur(10px);
-        padding: 24px;
-        border-radius: 12px;
-        border: 1px solid rgba(88, 166, 255, 0.2);
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
-        text-align: center;
-        transition: transform 0.3s ease, border-color 0.3s ease;
-    }
-    .kpi-card:hover {
-        transform: translateY(-5px);
-        border-color: #58a6ff;
-    }
-    .kpi-val {
-        font-family: 'Outfit', sans-serif;
-        font-size: 36px;
-        font-weight: 800;
-        color: #58a6ff;
-        margin-bottom: 5px;
-    }
-    .kpi-lbl {
-        font-size: 13px;
-        color: #8b949e;
-        text-transform: uppercase;
-        letter-spacing: 1.5px;
-        font-weight: 600;
-    }
-    
-    /* Subtitle styling */
-    .subtitle {
-        color: #8b949e;
-        font-size: 1.1rem;
-        margin-bottom: 2rem;
-    }
-    </style>
-""", unsafe_allow_html=True)
+# Header block
+styles.render_header(
+    "Market Analytics Dashboard",
+    "Overview of macro-market trends, public sentiment shifts, and emerging industry keywords."
+)
 
 # Cache data calls for 5 minutes (300 seconds)
 @st.cache_data(ttl=300)
@@ -93,10 +46,6 @@ def fetch_keywords():
     response = requests.get(f"{API_URL}/api/analytics/keywords?days=7", timeout=5)
     response.raise_for_status()
     return response.json()
-
-# Header block
-st.markdown('<div class="gradient-header">📊 Market Analytics Dashboard</div>', unsafe_allow_html=True)
-st.markdown('<div class="subtitle">Overview of macro-market trends, public sentiment shifts, and emerging industry keywords.</div>', unsafe_allow_html=True)
 
 try:
     # 1. Fetch data
@@ -132,16 +81,16 @@ try:
         
     with col3:
         st.markdown(f"""
-        <div class="kpi-card" style="border-color: rgba(46, 160, 67, 0.3);">
-            <div class="kpi-val" style="color: #2ea043;">{pos_pct:.1f}%</div>
+        <div class="kpi-card">
+            <div class="kpi-val" style="color: rgb(16, 185, 129);">{pos_pct:.1f}%</div>
             <div class="kpi-lbl">Positive Sentiment</div>
         </div>
         """, unsafe_allow_html=True)
         
     with col4:
         st.markdown(f"""
-        <div class="kpi-card" style="border-color: rgba(248, 81, 73, 0.3);">
-            <div class="kpi-val" style="color: #f85149;">{neg_pct:.1f}%</div>
+        <div class="kpi-card">
+            <div class="kpi-val" style="color: rgb(239, 68, 68);">{neg_pct:.1f}%</div>
             <div class="kpi-lbl">Negative Sentiment</div>
         </div>
         """, unsafe_allow_html=True)
@@ -152,13 +101,14 @@ try:
     chart_col1, chart_col2 = st.columns(2)
     
     with chart_col1:
-        st.markdown("### 📊 Sentiment Distribution")
+        st.markdown("### Sentiment Distribution")
         df_pie = pd.DataFrame(sentiment_data)
         
+        # Professional Muted Colors
         color_map = {
-            "positive": "#2ea043",
-            "negative": "#f85149",
-            "neutral": "#8b949e"
+            "positive": "#10b981", # emerald-500
+            "negative": "#ef4444", # red-500
+            "neutral": "#6b7280"  # gray-500
         }
         
         fig_pie = px.pie(
@@ -172,7 +122,7 @@ try:
         fig_pie.update_layout(
             paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor="rgba(0,0,0,0)",
-            font_color="#c9d1d9",
+            font_family="Inter",
             legend=dict(orientation="h", yanchor="bottom", y=-0.15, xanchor="center", x=0.5),
             margin=dict(t=10, b=10, l=10, r=10)
         )
@@ -180,7 +130,7 @@ try:
         st.plotly_chart(fig_pie, use_container_width=True)
         
     with chart_col2:
-        st.markdown("### 📈 Sentiment Over Time (30 Days)")
+        st.markdown("### Sentiment Over Time (30 Days)")
         df_trend = pd.DataFrame(trend_data)
         
         if not df_trend.empty:
@@ -188,28 +138,28 @@ try:
             fig_line.add_trace(go.Scatter(
                 x=df_trend["date"], y=df_trend["positive"], 
                 mode="lines+markers", name="Positive", 
-                line=dict(color="#2ea043", width=3),
-                marker=dict(size=6)
+                line=dict(color="#10b981", width=2),
+                marker=dict(size=4)
             ))
             fig_line.add_trace(go.Scatter(
                 x=df_trend["date"], y=df_trend["negative"], 
                 mode="lines+markers", name="Negative", 
-                line=dict(color="#f85149", width=3),
-                marker=dict(size=6)
+                line=dict(color="#ef4444", width=2),
+                marker=dict(size=4)
             ))
             fig_line.add_trace(go.Scatter(
                 x=df_trend["date"], y=df_trend["neutral"], 
                 mode="lines+markers", name="Neutral", 
-                line=dict(color="#8b949e", width=2),
-                marker=dict(size=4)
+                line=dict(color="#6b7280", width=1.5),
+                marker=dict(size=3)
             ))
             
             fig_line.update_layout(
                 paper_bgcolor="rgba(0,0,0,0)",
                 plot_bgcolor="rgba(0,0,0,0)",
-                font_color="#c9d1d9",
-                xaxis=dict(showgrid=True, gridcolor="#21262d", title="Date"),
-                yaxis=dict(showgrid=True, gridcolor="#21262d", title="Article Count"),
+                font_family="Inter",
+                xaxis=dict(showgrid=True, gridcolor="rgba(128,128,128,0.15)", title="Date"),
+                yaxis=dict(showgrid=True, gridcolor="rgba(128,128,128,0.15)", title="Article Count"),
                 legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5),
                 margin=dict(t=10, b=10, l=10, r=10)
             )
@@ -220,7 +170,7 @@ try:
     st.markdown("<br>", unsafe_allow_html=True)
     
     # Row 3: Top 10 keywords
-    st.markdown("### 🔥 Top Trending Keywords (Last 7 Days)")
+    st.markdown("### Top Trending Keywords (Last 7 Days)")
     df_kw = pd.DataFrame(keyword_data)
     
     if not df_kw.empty:
@@ -233,14 +183,14 @@ try:
             orientation="h",
             labels={"score": "Importance Score", "keyword": "Keyword"},
             color="score",
-            color_continuous_scale="magma"
+            color_continuous_scale="greys" # Minimalist grayscale theme
         )
         
         fig_bar.update_layout(
             paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor="rgba(0,0,0,0)",
-            font_color="#c9d1d9",
-            xaxis=dict(showgrid=True, gridcolor="#21262d"),
+            font_family="Inter",
+            xaxis=dict(showgrid=True, gridcolor="rgba(128,128,128,0.15)"),
             yaxis=dict(showgrid=False),
             coloraxis_showscale=False,
             margin=dict(t=10, b=10, l=10, r=10),
@@ -251,8 +201,9 @@ try:
         st.info("No trending keyword data available yet.")
         
 except Exception as e:
-    st.error("⚠️ Unable to connect to the Scout API backend server.")
+    st.error("Unable to connect to the Scout API backend server.")
     st.info("Please make sure the FastAPI backend is running at http://localhost:8000.")
     st.exception(e)
 
-st.markdown("---")
+st.sidebar.markdown("---")
+styles.system_sidebar()
