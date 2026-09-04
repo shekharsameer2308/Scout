@@ -27,34 +27,25 @@ styles.render_header(
     "Enter research topics, industry questions, or request SWOT reports built from gathered intelligence."
 )
 
-# Helper: Retrieve matching articles from SQL database
+class ArticleObj:
+    def __init__(self, d):
+        self.title = d.get("title", "")
+        self.url = d.get("url", "")
+        self.content = d.get("content", "")
+        self.summary = d.get("summary", "")
+        self.source = d.get("source", "")
+        self.industry = d.get("industry", "")
+
+# Helper: Retrieve matching articles from backend API
 def retrieve_articles(query: str, limit: int = 5):
-    db = SessionLocal()
     try:
-        # Simple token-based keyword search on title and content
-        tokens = [t.strip().lower() for t in query.split() if len(t.strip()) > 2]
-        if not tokens:
-            return db.query(Article).order_by(Article.published_date.desc()).limit(limit).all()
-            
-        # Build filter conditions matching any keyword token
-        from sqlalchemy import or_
-        conditions = []
-        for token in tokens:
-            conditions.append(Article.title.ilike(f"%{token}%"))
-            conditions.append(Article.content.ilike(f"%{token}%"))
-            
-        results = db.query(Article).filter(or_(*conditions)).order_by(Article.published_date.desc()).limit(limit).all()
-        
-        # If no keyword matches, fallback to latest articles
-        if not results:
-            results = db.query(Article).order_by(Article.published_date.desc()).limit(limit).all()
-            
-        return results
+        response = requests.get(f"{API_URL}/api/articles/", params={"search": query, "limit": limit}, timeout=5)
+        response.raise_for_status()
+        data = response.json()
+        return [ArticleObj(a) for a in data]
     except Exception as e:
-        st.error(f"Error querying database: {e}")
+        st.error(f"Error querying backend API: {e}")
         return []
-    finally:
-        db.close()
 
 # Helper: Generate RAG response using Gemini or intelligent local fallback
 def generate_response(prompt: str, articles):
@@ -166,10 +157,7 @@ The primary focus of recent publications is the expansion of technological capab
 {sources_table}
 """
 
-# Initialize SessionLocal db connection imports
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
-from database.connection import SessionLocal
-from database.models.article import Article
+
 
 # Initialize session state for chat history
 if "chat_history" not in st.session_state:

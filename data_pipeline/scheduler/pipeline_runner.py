@@ -47,19 +47,26 @@ def run_pipeline(dry_run: bool = False, run_topics_flag: bool = False):
     
     # Initialize DB session if not dry run
     db: Session = None
+    existing_urls = set()
     if not dry_run:
         # Ensure tables exist
         Base.metadata.create_all(bind=engine)
         db = SessionLocal()
         
         # Lazy load heavy ML packages only when database writes are active
-        from analytics.sentiment.finbert import analyze_sentiment
-        from analytics.keyword_extraction.keybert_extractor import extract_keywords
-        from rag.embedding import embed_and_store
+        from analytics.sentiment.finbert import analyze_batch
+        from analytics.keyword_extraction.keybert_extractor import extract_keywords_batch
+        from rag.embedding import embed_batch
+        
+        # Bulk query existing URLs for duplicate checking
+        urls = [art_dict.get("url") for art_dict in processed_articles if art_dict.get("url")]
+        if urls:
+            existing_urls = {a.url for a in db.query(Article.url).filter(Article.url.in_(urls)).all()}
         
     inserted_count = 0
     duplicate_count = 0
     error_count = 0
+    db_articles = []
     
     # 3. Ingestion Loop
     for art_dict in processed_articles:
@@ -84,15 +91,14 @@ def run_pipeline(dry_run: bool = False, run_topics_flag: bool = False):
             inserted_count += 1
             continue
             
+        # Skip if URL already exists in DB (Deduplication)
+        if url in existing_urls:
+            duplicate_count += 1
+            logger.debug(f"Skipping duplicate article: '{title[:30]}' ({url})")
+            continue
+            
         try:
-            # Skip if URL already exists in DB (Deduplication)
-            existing = db.query(Article).filter(Article.url == url).first()
-            if existing:
-                duplicate_count += 1
-                logger.debug(f"Skipping duplicate article: '{title[:30]}' ({url})")
-                continue
-                
-            # Insert Article
+            # Build Article
             db_article = Article(
                 title=title,
                 content=content,
@@ -104,31 +110,49 @@ def run_pipeline(dry_run: bool = False, run_topics_flag: bool = False):
                 published_date=art_dict.get("published_date")
             )
             db.add(db_article)
-            db.commit()
-            db.refresh(db_article)
-            inserted_count += 1
+            db_articles.append(db_article)
+        except Exception as e:
+            logger.error(f"Failed to build article '{title[:30]}': {e}")
+            error_count += 1
             
-            # Analyze Sentiment (Phase 3)
-            try:
-                analyze_sentiment(db_article, db)
-            except Exception as e:
-                logger.error(f"Failed to analyze sentiment for article {db_article.id}: {e}")
-                
-            # Extract Keywords (Phase 3)
-            try:
-                extract_keywords(db_article, db)
-            except Exception as e:
-                logger.error(f"Failed to extract keywords for article {db_article.id}: {e}")
-                
-            # Embed and Store (Phase 5)
-            try:
-                embed_and_store(db_article, db)
-            except Exception as e:
-                logger.error(f"Failed to embed and store article {db_article.id}: {e}")
-                
-            # Competitor Mention Detection (Phase 7)
-            try:
-                mentions = cleaner.detect_mentions(content, WATCHLIST)
+    # Bulk insert and save articles
+    if not dry_run and db_articles:
+        try:
+            db.commit()
+            for art in db_articles:
+                db.refresh(art)
+            inserted_count = len(db_articles)
+        except Exception as e:
+            logger.error(f"Failed to bulk insert articles: {e}")
+            db.rollback()
+            error_count += len(db_articles)
+            db_articles = []
+            
+    # Run batch operations on newly inserted articles
+    if not dry_run and db_articles:
+        # Batch Sentiment
+        try:
+            analyze_batch(db_articles, db)
+        except Exception as e:
+            logger.error(f"Failed to batch analyze sentiment: {e}")
+            
+        # Batch Keywords
+        try:
+            extract_keywords_batch(db_articles, db)
+        except Exception as e:
+            logger.error(f"Failed to batch extract keywords: {e}")
+            
+        # Batch Embeddings
+        try:
+            embed_batch(db_articles, db)
+        except Exception as e:
+            logger.error(f"Failed to batch embed: {e}")
+            
+        # Competitor Mention Detection (Phase 7)
+        db_mentions = []
+        try:
+            for db_article in db_articles:
+                mentions = cleaner.detect_mentions(db_article.content, WATCHLIST)
                 if mentions:
                     for mention in mentions:
                         db_mention = CompetitorMention(
@@ -138,16 +162,15 @@ def run_pipeline(dry_run: bool = False, run_topics_flag: bool = False):
                             context_snippet=mention["context_snippet"]
                         )
                         db.add(db_mention)
-                    db.commit()
-                    logger.debug(f"[Mentions] Found {len(mentions)} mentions in article: '{title[:30]}'")
-            except Exception as e:
-                logger.error(f"Failed to process competitor mentions for article {db_article.id}: {e}")
-                
+                        db_mentions.append(db_mention)
+            if db_mentions:
+                db.commit()
+                logger.debug(f"[Mentions] Bulk inserted {len(db_mentions)} mentions.")
         except Exception as e:
-            logger.error(f"Failed to insert article '{title[:30]}': {e}")
-            error_count += 1
-            if db:
-                db.rollback()
+            logger.error(f"Failed to process competitor mentions in batch: {e}")
+            db.rollback()
+                
+
                 
     if db:
         db.close()

@@ -38,11 +38,39 @@ def embed_and_store(article: Article, db: Session = None) -> EmbeddingsMetadata:
         if db_created:
             db.close()
 
-def embed_batch(articles: list):
-    """Stub for batch embedding."""
-    db = SessionLocal()
+def embed_batch(articles: list, db: Session = None):
+    """Batch embedding generating mock metadata and storing in DB with single commit."""
+    if not articles:
+        return
+        
+    db_created = False
+    if db is None:
+        db = SessionLocal()
+        db_created = True
+        
     try:
-        for art in articles:
-            embed_and_store(art, db)
+        art_ids = [art.id for art in articles]
+        existing_embeddings = db.query(EmbeddingsMetadata).filter(EmbeddingsMetadata.article_id.in_(art_ids)).all()
+        existing_art_ids = {e.article_id for e in existing_embeddings}
+        
+        to_process = [art for art in articles if art.id not in existing_art_ids]
+        if not to_process:
+            return
+            
+        for art in to_process:
+            vector_id = str(uuid.uuid4())
+            metadata = EmbeddingsMetadata(
+                article_id=art.id,
+                vector_id=vector_id
+            )
+            db.add(metadata)
+            
+        db.commit()
+        logger.info(f"[Embedding Mock] Batch generated mock vectors for {len(to_process)} articles.")
+    except Exception as e:
+        logger.error(f"[Embedding Mock] Error batch embedding: {e}")
+        db.rollback()
+        raise e
     finally:
-        db.close()
+        if db_created:
+            db.close()

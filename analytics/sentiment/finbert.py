@@ -70,26 +70,25 @@ def analyze_sentiment(article: Article, db: Session) -> SentimentScore:
         db.rollback()
         raise e
 
-def analyze_batch(articles: List[Article], db: Session):
+def analyze_batch(articles: List[Article], db: Session) -> List[SentimentScore]:
     """Processes a batch of articles in chunks of 16 to avoid OOM errors."""
     if not articles:
-        return
+        return []
         
     tokenizer, model = get_finbert()
     chunk_size = 16
     
-    # Pre-filter articles that already have sentiment scores
-    to_process = []
-    for art in articles:
-        existing = db.query(SentimentScore).filter(SentimentScore.article_id == art.id).first()
-        if not existing:
-            to_process.append(art)
+    # Pre-filter articles that already have sentiment scores in a batch query
+    art_ids = [art.id for art in articles]
+    existing_art_ids = {s.article_id for s in db.query(SentimentScore.article_id).filter(SentimentScore.article_id.in_(art_ids)).all()}
+    to_process = [art for art in articles if art.id not in existing_art_ids]
             
     if not to_process:
         logger.info("[FinBERT] All articles in batch already have sentiment scores. Skipping.")
-        return
+        return []
         
     logger.info(f"[FinBERT] Processing sentiment for {len(to_process)} articles in chunks of {chunk_size}...")
+    db_scores = []
     
     for i in range(0, len(to_process), chunk_size):
         chunk = to_process[i:i+chunk_size]
@@ -123,6 +122,7 @@ def analyze_batch(articles: List[Article], db: Session):
                         score=score
                     )
                     db.add(db_score)
+                    db_scores.append(db_score)
                     
             db.commit()
             
@@ -134,3 +134,5 @@ def analyze_batch(articles: List[Article], db: Session):
         except Exception as e:
             logger.error(f"[FinBERT] Error processing batch starting at index {i}: {e}")
             db.rollback()
+            
+    return db_scores

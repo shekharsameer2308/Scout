@@ -114,41 +114,50 @@ def get_competitor_summaries(db: Session) -> list:
     """Calculates overall competitor mention statistics and sentiment/industry breakdown."""
     from database.models.competitor import CompetitorMention
     
-    # Get total mentions per competitor
+    # 1. Get total mentions per competitor
     results = db.query(
         CompetitorMention.company_name,
         func.sum(CompetitorMention.mention_count).label("total_mentions")
     ).group_by(CompetitorMention.company_name).all()
     
+    # 2. Get industry breakdowns for all competitors in a single grouped query
+    ind_results = db.query(
+        CompetitorMention.company_name,
+        Article.industry,
+        func.sum(CompetitorMention.mention_count).label("count")
+    ).join(Article, Article.id == CompetitorMention.article_id)\
+     .group_by(CompetitorMention.company_name, Article.industry).all()
+     
+    # 3. Get sentiment breakdowns for all competitors in a single grouped query
+    sent_results = db.query(
+        CompetitorMention.company_name,
+        SentimentScore.sentiment,
+        func.sum(CompetitorMention.mention_count).label("count")
+    ).join(SentimentScore, SentimentScore.article_id == CompetitorMention.article_id)\
+     .group_by(CompetitorMention.company_name, SentimentScore.sentiment).all()
+     
+    # Map industry results in memory: {company_name: {industry: count}}
+    industry_maps = {}
+    for row in ind_results:
+        if row.company_name not in industry_maps:
+            industry_maps[row.company_name] = {}
+        industry_maps[row.company_name][row.industry] = int(row.count or 0)
+        
+    # Map sentiment results in memory: {company_name: {sentiment: count}}
+    sentiment_maps = {}
+    for row in sent_results:
+        if row.company_name not in sentiment_maps:
+            sentiment_maps[row.company_name] = {}
+        sentiment_maps[row.company_name][row.sentiment] = int(row.count or 0)
+        
     summaries = []
     for r in results:
         company_name = r.company_name
-        
-        # Get industry breakdown
-        ind_results = db.query(
-            Article.industry,
-            func.sum(CompetitorMention.mention_count).label("count")
-        ).join(Article, Article.id == CompetitorMention.article_id)\
-         .filter(CompetitorMention.company_name == company_name)\
-         .group_by(Article.industry).all()
-        
-        ind_breakdown = {row.industry: int(row.count) for row in ind_results}
-        
-        # Get sentiment breakdown
-        sent_results = db.query(
-            SentimentScore.sentiment,
-            func.sum(CompetitorMention.mention_count).label("count")
-        ).join(SentimentScore, SentimentScore.article_id == CompetitorMention.article_id)\
-         .filter(CompetitorMention.company_name == company_name)\
-         .group_by(SentimentScore.sentiment).all()
-         
-        sent_breakdown = {row.sentiment: int(row.count) for row in sent_results}
-        
         summaries.append({
             "company_name": company_name,
             "total_mentions": int(r.total_mentions or 0),
-            "industry_breakdown": ind_breakdown,
-            "sentiment_breakdown": sent_breakdown
+            "industry_breakdown": industry_maps.get(company_name, {}),
+            "sentiment_breakdown": sentiment_maps.get(company_name, {})
         })
         
     # Sort by total mentions descending

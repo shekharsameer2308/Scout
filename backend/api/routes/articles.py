@@ -144,20 +144,22 @@ async def fetch_internet_articles(q: str):
 @router.post("/ingest-keyword")
 async def ingest_keyword(q: str, db: Session = Depends(get_db)):
     """Fetches articles from Google News search feed matching q,
-    cleans them, normalizes them, and runs the full pipeline (FinBERT, KeyBERT, Qdrant, Competitors).
+    cleans them, normalizes them, and runs the full pipeline in batch
+    (FinBERT, KeyBERT, Qdrant, Competitors) with concurrent scraping.
     """
     import feedparser
     import requests
     import re
     import trafilatura
     import logging
+    import concurrent.futures
     from database.models.competitor import CompetitorMention
     from database.models.analytics import SentimentScore, Keyword
     from database.models.embeddings import EmbeddingsMetadata
     from data_pipeline.processors import cleaner, classifier
-    from analytics.sentiment.finbert import analyze_sentiment
-    from analytics.keyword_extraction.keybert_extractor import extract_keywords
-    from rag.embedding import embed_and_store
+    from analytics.sentiment.finbert import analyze_batch
+    from analytics.keyword_extraction.keybert_extractor import extract_keywords_batch
+    from rag.embedding import embed_batch
     from data_pipeline.scheduler.pipeline_runner import WATCHLIST
     
     logger = logging.getLogger(__name__)
@@ -180,47 +182,59 @@ async def ingest_keyword(q: str, db: Session = Depends(get_db)):
         response.raise_for_status()
         feed = feedparser.parse(response.content)
         
-        # Ingest top 15 entries
-        for entry in feed.entries[:15]:
-            articles_fetched += 1
-            title = entry.get("title", "")
-            url = entry.get("link", "")
-            summary = entry.get("summary", "") or entry.get("description") or ""
-            source = entry.get("source", {}).get("name") if entry.get("source") else "Google News"
-            pub_date_str = entry.get("published", "")
-            
-            # 1. Clean HTML from summary
+        entries = feed.entries[:15]
+        articles_fetched = len(entries)
+        
+        # 1. Bulk check duplicates to avoid scraping them
+        urls = [entry.get("link") for entry in entries if entry.get("link")]
+        existing_urls = {a.url for a in db.query(Article.url).filter(Article.url.in_(urls)).all()}
+        duplicates_skipped = sum(1 for url in urls if url in existing_urls)
+        
+        entries_to_fetch = [entry for entry in entries if entry.get("link") and entry.get("link") not in existing_urls]
+        
+        # Thread function to download/extract content concurrently
+        def fetch_content(entry):
+            url = entry.get("link")
+            summary = entry.get("summary") or entry.get("description") or ""
             clean_summary = cleaner.clean_text(summary)
             clean_summary = cleaner.strip_boilerplate(clean_summary)
-            
-            # 2. Check for duplicate URL in DB
-            existing = db.query(Article).filter(Article.url == url).first()
-            if existing:
-                duplicates_skipped += 1
-                continue
-                
-            # 3. Extract full content using trafilatura
             content = clean_summary
-            if url:
-                try:
-                    downloaded = trafilatura.fetch_url(url)
-                    if downloaded:
-                        extracted = trafilatura.extract(downloaded)
-                        if extracted:
-                            content = cleaner.clean_text(extracted)
-                            content = cleaner.strip_boilerplate(content)
-                            content = cleaner.truncate(content)
-                except Exception as te:
-                    logger.warning(f"Trafilatura failed for {url}: {te}")
-                    
-            # Normalize pub date
+            try:
+                downloaded = trafilatura.fetch_url(url)
+                if downloaded:
+                    extracted = trafilatura.extract(downloaded)
+                    if extracted:
+                        content = cleaner.clean_text(extracted)
+                        content = cleaner.strip_boilerplate(content)
+                        content = cleaner.truncate(content)
+            except Exception as te:
+                logger.warning(f"Trafilatura failed for {url}: {te}")
+            return entry, content, clean_summary
+
+        # 2. Parallel scraping of non-duplicate articles
+        fetched_results = []
+        if entries_to_fetch:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+                futures = {executor.submit(fetch_content, entry): entry for entry in entries_to_fetch}
+                for future in concurrent.futures.as_completed(futures):
+                    try:
+                        entry, content, clean_summary = future.result()
+                        fetched_results.append((entry, content, clean_summary))
+                    except Exception as fe:
+                        logger.error(f"Thread pool task failed: {fe}")
+                        errors += 1
+        
+        # 3. Bulk Insert Articles
+        db_articles = []
+        for entry, content, clean_summary in fetched_results:
+            title = entry.get("title", "")
+            url = entry.get("link", "")
+            source = entry.get("source", {}).get("name") if entry.get("source") else "Google News"
+            pub_date_str = entry.get("published", "")
             published_date = cleaner.normalize_date(pub_date_str)
-            
-            # 4. Classify industry
             industry, confidence = classifier.classify_industry(content or title)
             
             try:
-                # 5. Insert Article
                 db_article = Article(
                     title=title,
                     content=content,
@@ -232,49 +246,80 @@ async def ingest_keyword(q: str, db: Session = Depends(get_db)):
                     published_date=published_date
                 )
                 db.add(db_article)
+                db_articles.append(db_article)
+            except Exception as e:
+                logger.error(f"Failed to create article object: {e}")
+                errors += 1
+                
+        if db_articles:
+            try:
                 db.commit()
-                db.refresh(db_article)
+                for art in db_articles:
+                    db.refresh(art)
+                new_ingested = len(db_articles)
+            except Exception as e:
+                logger.error(f"Failed to commit batch articles: {e}")
+                db.rollback()
+                errors += len(db_articles)
+                db_articles = []
                 
-                # 6. Analyze Sentiment
-                db_sentiment = analyze_sentiment(db_article, db)
-                sentiment_val = db_sentiment.sentiment if db_sentiment else "neutral"
+        # 4. Batch ML Operations
+        if db_articles:
+            sentiment_map = {}
+            kw_map = {}
+            
+            try:
+                sentiment_scores = analyze_batch(db_articles, db)
+                sentiment_map = {s.article_id: s.sentiment for s in sentiment_scores}
+            except Exception as e:
+                logger.error(f"Failed to batch analyze sentiment: {e}")
                 
-                # 7. Extract Keywords
-                db_kws = extract_keywords(db_article, db)
-                kws_list = [k.keyword for k in db_kws] if db_kws else []
+            try:
+                keywords = extract_keywords_batch(db_articles, db)
+                for kw in keywords:
+                    if kw.article_id not in kw_map:
+                        kw_map[kw.article_id] = []
+                    kw_map[kw.article_id].append(kw.keyword)
+            except Exception as e:
+                logger.error(f"Failed to batch extract keywords: {e}")
                 
-                # 8. Embed and Store in Qdrant (RAG index)
-                embed_and_store(db_article, db)
+            try:
+                embed_batch(db_articles, db)
+            except Exception as e:
+                logger.error(f"Failed to batch embed articles: {e}")
                 
-                # 9. Detect competitor mentions
-                mentions = cleaner.detect_mentions(content, WATCHLIST)
+            # 5. Competitor Mentions Bulk Insertion
+            db_mentions = []
+            for art in db_articles:
+                mentions = cleaner.detect_mentions(art.content, WATCHLIST)
                 if mentions:
                     for mention in mentions:
                         db_mention = CompetitorMention(
-                            article_id=db_article.id,
+                            article_id=art.id,
                             company_name=mention["company_name"],
                             mention_count=mention["mention_count"],
                             context_snippet=mention["context_snippet"]
                         )
                         db.add(db_mention)
+                        db_mentions.append(db_mention)
+            if db_mentions:
+                try:
                     db.commit()
+                except Exception as e:
+                    logger.error(f"Failed to commit competitor mentions: {e}")
+                    db.rollback()
                     
-                new_ingested += 1
-                
+            # 6. Format Response Details
+            for art in db_articles:
                 ingested_details.append({
-                    "id": str(db_article.id),
-                    "title": db_article.title,
-                    "url": db_article.url,
-                    "source": db_article.source,
-                    "industry": db_article.industry,
-                    "sentiment": sentiment_val,
-                    "keywords": kws_list[:5]
+                    "id": str(art.id),
+                    "title": art.title,
+                    "url": art.url,
+                    "source": art.source,
+                    "industry": art.industry,
+                    "sentiment": sentiment_map.get(art.id, "neutral"),
+                    "keywords": kw_map.get(art.id, [])[:5]
                 })
-                
-            except Exception as e:
-                logger.error(f"Failed to ingest article '{title[:30]}': {e}")
-                errors += 1
-                db.rollback()
                 
     except Exception as e:
         logger.error(f"Error fetching Google News feed for query '{q}': {e}")
@@ -290,6 +335,7 @@ async def ingest_keyword(q: str, db: Session = Depends(get_db)):
         },
         "articles": ingested_details
     }
+
 
 @router.get("/{article_id}", response_model=ArticleOut)
 async def get_article(article_id: UUID, db: Session = Depends(get_db)):

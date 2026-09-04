@@ -4,7 +4,7 @@ from database.connection import SessionLocal
 from database.models.article import Article
 from database.models.analytics import SentimentScore, Keyword
 from analytics.sentiment.finbert import analyze_batch
-from analytics.keyword_extraction.keybert_extractor import extract_keywords
+from analytics.keyword_extraction.keybert_extractor import extract_keywords_batch
 
 # Configure logging
 logging.basicConfig(
@@ -37,13 +37,10 @@ def run_backfill():
         M = len(articles_no_keywords)
         logger.info(f"[Backfill] Found {M} articles without keywords.")
         
-        for idx, art in enumerate(articles_no_keywords):
-            try:
-                extract_keywords(art, db)
-                if (idx + 1) % 50 == 0 or (idx + 1) == M:
-                    logger.info(f"[Backfill] Keywords processed: {idx + 1}/{M}")
-            except Exception as e:
-                logger.error(f"[Backfill] Error extracting keywords for article '{art.title[:30]}': {e}")
+        # Run extract_keywords_batch in groups of 100
+        for i in range(0, M, chunk_size):
+            chunk = articles_no_keywords[i:i+chunk_size]
+            extract_keywords_batch(chunk, db)
                 
         print(f"Backfill complete: {N} sentiment, {M} keywords processed")
         

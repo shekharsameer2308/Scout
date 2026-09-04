@@ -64,6 +64,64 @@ def extract_keywords(article: Article, db: Session) -> List[Keyword]:
         db.rollback()
         raise e
 
+def extract_keywords_batch(articles: List[Article], db: Session) -> List[Keyword]:
+    """Extracts keywords/keyphrases for a batch of articles in a single forward pass where possible and stores them in the DB."""
+    if not articles:
+        return []
+        
+    try:
+        art_ids = [art.id for art in articles]
+        # Query existing keywords in a single call
+        existing_keywords = db.query(Keyword).filter(Keyword.article_id.in_(art_ids)).all()
+        existing_art_ids = {k.article_id for k in existing_keywords}
+        
+        to_process = [art for art in articles if art.id not in existing_art_ids]
+        if not to_process:
+            return existing_keywords
+            
+        kw_model = get_keybert()
+        texts = [f"{art.title}. {art.content or ''}" for art in to_process]
+        
+        # Handle single vs batch input explicitly to prevent keybert shape errors
+        if len(texts) == 1:
+            extracted_batch = [kw_model.extract_keywords(
+                texts[0],
+                keyphrase_ngram_range=(1, 2),
+                use_mmr=True,
+                diversity=0.5,
+                top_n=8
+            )]
+        else:
+            extracted_batch = kw_model.extract_keywords(
+                texts,
+                keyphrase_ngram_range=(1, 2),
+                use_mmr=True,
+                diversity=0.5,
+                top_n=8
+            )
+            
+        db_keywords = []
+        for art, extracted in zip(to_process, extracted_batch):
+            # Double check type to prevent single string extraction unpacking issues
+            if isinstance(extracted, tuple):
+                extracted = [extracted]
+            for word, score in extracted:
+                kw = Keyword(
+                    article_id=art.id,
+                    keyword=word.strip(),
+                    score=float(score)
+                )
+                db.add(kw)
+                db_keywords.append(kw)
+                
+        db.commit()
+        logger.info(f"[KeyBERT] Batch extracted keywords for {len(to_process)} articles.")
+        return existing_keywords + db_keywords
+    except Exception as e:
+        logger.error(f"[KeyBERT] Error extracting batch keywords: {e}")
+        db.rollback()
+        raise e
+
 if __name__ == "__main__":
     from database.connection import SessionLocal
     
